@@ -3,6 +3,7 @@ import random
 from game.game_logic import determine_winner
 from communication import robot_speech
 from camera.camera_recognition import CameraRecognizer
+from communication.robot_hand import RobotHand
 
 # ============================================================
 
@@ -20,7 +21,7 @@ def choose_robot_move():
 
 # ============================================================
 
-def play_round(camera):
+def play_round(camera, robot_hand):
     robot_move = choose_robot_move()
 
     robot_speech.start_round()
@@ -41,10 +42,11 @@ def play_round(camera):
 
         player_move = camera.detect_player_move()
 
-    print(f"\nSpelarens val: {player_move}")
+    print(f"\nPlayer chose: {player_move}")
 
     # Reveal robot's move
     robot_speech.announce_move(robot_move)
+    robot_hand.perform_gesture(robot_move)
 
     # Determine winner
     result = determine_winner(robot_move, player_move)
@@ -59,30 +61,26 @@ def play_round(camera):
 # ============================================================
 
 def main():
-    camera = None
+
+    camera = CameraRecognizer()
+    robot_hand = RobotHand()
 
     try:
-        robot_speech.introduce()
-        print("\nStartar kameran...")
-        camera = CameraRecognizer()
-
         while True:
-            play_round(camera)
-            again = input("\nVill du spela en gång till? (j/n): ")
-            if again.lower() != "j":
+            play_round(camera, robot_hand)
+
+            again = input("\nPlay another round? (y/n): ").strip().lower()
+
+            if again != "y":
                 break
 
-        robot_speech.goodbye()
-
     except KeyboardInterrupt:
-        print("\nSpelet avbröts.")
-
-    except Exception as error:
-        print(f"\nEtt fel uppstod: {error}")
+        print("\nStopping game...")
 
     finally:
-        if camera is not None:
-            camera.close()
+        robot_hand.relax()
+        robot_hand.close()
+        camera.close()
 
 # ============================================================
 
