@@ -1,0 +1,1 @@
+# Identify the colours of pieces in each square.

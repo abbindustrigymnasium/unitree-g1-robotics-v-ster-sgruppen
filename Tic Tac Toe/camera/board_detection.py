@@ -1,0 +1,1 @@
+# Locate the board and divide it into nine squares.

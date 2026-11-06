@@ -1,0 +1,1 @@
+# Save previous board states and compare them with new ones.
