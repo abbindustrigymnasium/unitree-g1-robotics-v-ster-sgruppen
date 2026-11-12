@@ -1,12 +1,16 @@
+# ============================================================
+# ROCK PAPER SCISSORS - CAMERA RECOGNITION
+# Unitree G1 Camera Integration
+#
 # How it works:
-# Opens the camera
-# Detects the player's hand
-# ecognizes rock, paper or scissors
-# Takes 10 samples
-# Uses majority voting to determine the result
-# Returns the result to the main game
-# Returns "UNKNOWN" if it can't confidently recognize the gesture
-
+# 1. Opens the G1 camera
+# 2. Detects the player's hand
+# 3. Recognizes rock, paper or scissors
+# 4. Takes 10 samples
+# 5. Uses majority voting to determine the result
+# 6. Returns the result to the main game
+# 7. Returns "UNKNOWN" if it can't confidently recognize
+# ============================================================
 
 import cv2
 import mediapipe as mp
@@ -14,6 +18,7 @@ import os
 import urllib.request
 import math
 import time
+
 from pathlib import Path
 from collections import Counter
 
@@ -33,7 +38,8 @@ MODEL_URL = (
     "hand_landmarker.task"
 )
 
-CAMERA_INDEX = 0
+# Unitree G1 camera
+CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "/dev/video2")
 
 NUMBER_OF_FRAMES = 10
 MINIMUM_VOTES = 6
@@ -163,7 +169,6 @@ def recognize_gesture(landmarks):
     ])
 
     # SCISSORS
-    # Index and middle extended, pinky not extended.
     if index and middle and not pinky:
         return "SCISSORS"
 
@@ -235,13 +240,15 @@ def draw_hand(frame, landmarks):
 
 class CameraRecognizer:
 
-    def __init__(self, camera_index=CAMERA_INDEX):
+    def __init__(self, camera_source=CAMERA_SOURCE):
 
         download_model()
 
         # Initialize MediaPipe
         BaseOptions = mp.tasks.BaseOptions
+
         HandLandmarker = mp.tasks.vision.HandLandmarker
+
         HandLandmarkerOptions = (
             mp.tasks.vision.HandLandmarkerOptions
         )
@@ -263,26 +270,42 @@ class CameraRecognizer:
             HandLandmarker.create_from_options(options)
         )
 
-        # Open camera
+        # Convert numeric camera strings to integers
+        if isinstance(camera_source, str) and camera_source.isdigit():
+            camera_source = int(camera_source)
+
+        # ----------------------------------------------------
+        # OPEN CAMERA
+        # ----------------------------------------------------
+
         if os.name == "nt":
+
+            # Windows
             self.cap = cv2.VideoCapture(
-                camera_index,
+                camera_source,
                 cv2.CAP_DSHOW
             )
+
         else:
-            self.cap = cv2.VideoCapture(camera_index)
+
+            # Linux / Unitree G1
+            self.cap = cv2.VideoCapture(
+                camera_source,
+                cv2.CAP_V4L2
+            )
 
         if not self.cap.isOpened():
 
             self.landmarker.close()
 
             raise RuntimeError(
-                "Could not open camera!"
+                f"Could not open camera: {camera_source}"
             )
 
         self.last_timestamp_ms = -1
 
         print("Camera recognizer initialized!")
+        print(f"Using camera: {camera_source}")
 
 
     # ========================================================
@@ -355,6 +378,7 @@ class CameraRecognizer:
 
                 break
 
+            # Mirror camera image
             frame = cv2.flip(frame, 1)
 
             current_time = time.monotonic()

@@ -5,7 +5,7 @@ from inspire_rh56dftp import InspireHand
 class RobotHand:
 
     def __init__(self):
-        self.hand = InspireHand(ip="192.168.123.211")
+        self.hand = InspireHand(ip="192.168.123.210")
 
         self.gestures = {
             "ROCK":     [0, 0, 0, 0, 0, 1000],
