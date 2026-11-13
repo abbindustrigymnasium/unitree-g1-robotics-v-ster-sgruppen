@@ -2,13 +2,13 @@ import time
 
 def countdown():
 	print("\nSten...")
-	time.sleep(0.7)
+	time.sleep(1.2)
 
 	print("Sax...")
-	time.sleep(0.7)
+	time.sleep(1.2)
 
 	print("Påse!")
-	time.sleep(0.2)
+	time.sleep(0.8)
 
 	print("VISA DITT TECKEN!")
 

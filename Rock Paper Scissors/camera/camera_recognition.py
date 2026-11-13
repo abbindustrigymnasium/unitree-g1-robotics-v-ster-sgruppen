@@ -18,6 +18,7 @@ import os
 import urllib.request
 import math
 import time
+import threading
 
 from pathlib import Path
 from collections import Counter
@@ -39,7 +40,10 @@ MODEL_URL = (
 )
 
 # Unitree G1 camera
-CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "/dev/video2")
+CAMERA_SOURCE = os.getenv(
+    "CAMERA_SOURCE",
+    "rtsp://192.168.123.164:8554/cam"
+)
 
 NUMBER_OF_FRAMES = 10
 MINIMUM_VOTES = 6
@@ -289,9 +293,14 @@ class CameraRecognizer:
         else:
 
             # Linux / Unitree G1
+            backend = (
+                cv2.CAP_FFMPEG
+                if isinstance(camera_source, str)
+                else cv2.CAP_V4L2
+            )
             self.cap = cv2.VideoCapture(
                 camera_source,
-                cv2.CAP_V4L2
+                backend
             )
 
         if not self.cap.isOpened():
@@ -302,10 +311,44 @@ class CameraRecognizer:
                 f"Could not open camera: {camera_source}"
             )
 
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.latest_frame = None
+        self.capture_lock = threading.Lock()
+        self.capture_stop = threading.Event()
+        self.capture_thread = threading.Thread(
+            target=self._capture_latest_frame,
+            daemon=True
+        )
+        self.capture_thread.start()
+
         self.last_timestamp_ms = -1
 
         print("Camera recognizer initialized!")
         print(f"Using camera: {camera_source}")
+
+    def _capture_latest_frame(self):
+
+        while not self.capture_stop.is_set():
+
+            success, frame = self.cap.read()
+
+            if not success or frame is None:
+                continue
+
+            with self.capture_lock:
+                self.latest_frame = frame
+
+    def read_latest_frame(self):
+
+        while not self.capture_stop.is_set():
+
+            with self.capture_lock:
+                if self.latest_frame is not None:
+                    return True, self.latest_frame.copy()
+
+            time.sleep(0.001)
+
+        return False, None
 
 
     # ========================================================
@@ -358,6 +401,55 @@ class CameraRecognizer:
     # DETECT PLAYER MOVE
     # ========================================================
 
+    def wait_for_ready(self):
+
+        print("Press ENTER in the camera window when ready...")
+
+        while True:
+
+            success, frame = self.read_latest_frame()
+
+            if not success or frame is None:
+                print("Could not read camera frame.")
+                return False
+
+            frame = cv2.flip(frame, 1)
+
+            gesture, display_frame = self.process_frame(frame)
+
+            cv2.putText(
+                display_frame,
+                f"Prediction: {gesture}",
+                (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                2
+            )
+
+            cv2.putText(
+                display_frame,
+                "Press ENTER to start, Q to cancel",
+                (10, 75),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 0),
+                2
+            )
+
+            cv2.imshow(
+                "Rock Paper Scissors Camera",
+                display_frame
+            )
+
+            key = cv2.waitKey(1) & 0xFF
+
+            if key in (10, 13):
+                return True
+
+            if key == ord("q"):
+                return False
+
     def detect_player_move(self):
 
         print("\nWaiting for player's gesture...")
@@ -370,7 +462,7 @@ class CameraRecognizer:
 
         while samples_taken < NUMBER_OF_FRAMES:
 
-            success, frame = self.cap.read()
+            success, frame = self.read_latest_frame()
 
             if not success or frame is None:
 
@@ -479,7 +571,9 @@ class CameraRecognizer:
 
     def close(self):
 
+        self.capture_stop.set()
         self.cap.release()
+        self.capture_thread.join(timeout=1)
 
         cv2.destroyAllWindows()
 

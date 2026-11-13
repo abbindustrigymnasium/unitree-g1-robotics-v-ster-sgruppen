@@ -26,8 +26,6 @@ def play_round(camera, robot_hand):
 
     robot_speech.start_round()
 
-    input("\nTryck ENTER när du är redo...")
-
     # Countdown
     robot_speech.countdown()
 
@@ -37,7 +35,6 @@ def play_round(camera, robot_hand):
     while player_move == "UNKNOWN":
         robot_speech.ask_for_retry()
 
-        input("\nTryck ENTER för att försöka igen...")
         robot_speech.countdown()
 
         player_move = camera.detect_player_move()
@@ -67,7 +64,8 @@ def main():
 
     try:
         while True:
-            play_round(camera, robot_hand)
+            if play_round(camera, robot_hand) is False:
+                break
 
             again = input("\nPlay another round? (y/n): ").strip().lower()
 
