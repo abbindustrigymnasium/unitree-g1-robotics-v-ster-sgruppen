@@ -21,14 +21,19 @@ class RobotHand:
     def perform_gesture(self, move):
         if move not in self.gestures:
             print(f"Unknown gesture: {move}")
-            return
+            return False
 
         if self.hand is None:
             print(f"Warning: skipping hand gesture {move}; hand is unavailable.")
-            return
+            return False
 
         print(f"Robot hand performing: {move}")
-        self.hand.send_raw(self.gestures[move])
+        try:
+            self.hand.send_raw(self.gestures[move])
+            return True
+        except (OSError, RuntimeError, TimeoutError) as error:
+            print(f"Warning: hand gesture failed: {error}")
+            return False
 
     def relax(self):
         if self.hand is None:

@@ -3,25 +3,30 @@ import random
 from game.game_logic import determine_winner
 from communication import robot_speech
 from camera.camera_recognition import CameraRecognizer
-from communication.robot_hand import RobotHand
+
+from robot.robot_movement import (
+    ArmGestureController,
+    reveal_gesture
+)
+
 
 # ============================================================
-
 # ROBOT MOVE
-
 # ============================================================
 
 def choose_robot_move():
+
     moves = ["ROCK", "PAPER", "SCISSORS"]
+
     return random.choice(moves)
 
-# ============================================================
 
+# ============================================================
 # PLAY ONE ROUND
-
 # ============================================================
 
-def play_round(camera, robot_hand):
+def play_round(camera, robot_arms):
+
     robot_move = choose_robot_move()
 
     robot_speech.start_round()
@@ -33,6 +38,7 @@ def play_round(camera, robot_hand):
     player_move = camera.detect_player_move()
 
     while player_move == "UNKNOWN":
+
         robot_speech.ask_for_retry()
 
         robot_speech.countdown()
@@ -41,49 +47,61 @@ def play_round(camera, robot_hand):
 
     print(f"\nPlayer chose: {player_move}")
 
-    # Reveal robot's move
+    # Reveal robot's move using its arms
     robot_speech.announce_move(robot_move)
-    robot_hand.perform_gesture(robot_move)
+
+    reveal_gesture(
+        None,
+        robot_arms,
+        robot_move
+    )
 
     # Determine winner
-    result = determine_winner(robot_move, player_move)
+    result = determine_winner(
+        robot_move,
+        player_move
+    )
 
     robot_speech.announce_result(result)
 
+    return True
+
 
 # ============================================================
-
 # MAIN GAME
-
 # ============================================================
 
 def main():
 
     camera = CameraRecognizer()
-    robot_hand = RobotHand()
+
+    robot_arms = ArmGestureController()
 
     try:
+
         while True:
-            if play_round(camera, robot_hand) is False:
+
+            if play_round(camera, robot_arms) is False:
                 break
 
-            again = input("\nPlay another round? (y/n): ").strip().lower()
+            again = input(
+                "\nPlay another round? (y/n): "
+            ).strip().lower()
 
             if again != "y":
                 break
 
     except KeyboardInterrupt:
+
         print("\nStopping game...")
 
     finally:
-        robot_hand.relax()
-        robot_hand.close()
+
         camera.close()
 
+
 # ============================================================
-
 # START
-
 # ============================================================
 
 if __name__ == "__main__":

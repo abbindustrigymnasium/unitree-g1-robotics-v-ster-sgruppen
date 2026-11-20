@@ -1,94 +1,92 @@
-"""Rock-paper-scissors movements and a small playable game.
-
-Hardware integration is deliberately kept behind ``RobotHand``: connect its
-``set_hand_pose`` method to the hand-control API used by your robot. Without a
-hardware adapter, the game runs in simulation and prints the requested pose.
-"""
-
-from __future__ import annotations
-
-import random
-import time
+import os
+import subprocess
 from typing import Protocol
 
 
 class RobotHand(Protocol):
-	"""Minimal interface expected from a robot-hand adapter."""
+    """Kept for compatibility with the existing project."""
 
-	def set_hand_pose(self, pose: str) -> None:
-		"""Set the hand to ``rock``, ``paper``, or ``scissors``."""
+    def set_hand_pose(self, pose: str) -> None:
+        ...
 
 
 class SimulatedHand:
-	"""Safe fallback used when no hardware adapter is supplied."""
+    """Fallback hand implementation."""
 
-	def set_hand_pose(self, pose: str) -> None:
-		print(f"[Robot hand] {pose}")
-
-
-def move_rock(robot: RobotHand) -> None:
-	"""Close the hand into a fist."""
-	robot.set_hand_pose("rock")
+    def set_hand_pose(self, pose: str) -> None:
+        print(f"[Robot hand] {pose}")
 
 
-def move_paper(robot: RobotHand) -> None:
-	"""Open and spread the fingers."""
-	robot.set_hand_pose("paper")
+def move_rock(robot):
+    robot.perform_gesture("ROCK")
 
 
-def move_scissors(robot: RobotHand) -> None:
-	"""Extend the index and middle fingers; curl the others."""
-	robot.set_hand_pose("scissors")
+def move_paper(robot):
+    robot.perform_gesture("PAPER")
+
+
+def move_scissors(robot):
+    robot.perform_gesture("SCISSORS")
 
 
 MOVEMENTS = {
-	"rock": move_rock,
-	"paper": move_paper,
-	"scissors": move_scissors,
+    "rock": move_rock,
+    "paper": move_paper,
+    "scissors": move_scissors,
 }
+
 CHOICES = tuple(MOVEMENTS)
 
 
-def play_round(player_choice: str, robot: RobotHand) -> str:
-	"""Perform one robot gesture and return the round result."""
-	player_choice = player_choice.strip().lower()
-	if player_choice not in MOVEMENTS:
-		raise ValueError("Choice must be rock, paper, or scissors.")
+class ArmGestureController:
+    """Execute RPS arm gestures on the G1 through SSH."""
 
-	robot_choice = random.choice(CHOICES)
-	MOVEMENTS[robot_choice](robot)
-	time.sleep(1)  # Give the hand time to finish its gesture.
-	print(f"You: {player_choice} | Robot: {robot_choice}")
+    def __init__(
+        self,
+        host: str = "unitree@192.168.123.164",
+        executable: str = "/home/unitree/unitree_sdk2-2.0.2/build/bin/g1_rps_gestures",
+    ) -> None:
+        self.host = host
+        self.executable = executable
 
-	if player_choice == robot_choice:
-		result = "It's a tie!"
-	elif (player_choice, robot_choice) in {
-		("rock", "scissors"),
-		("paper", "rock"),
-		("scissors", "paper"),
-	}:
-		result = "You win!"
-	else:
-		result = "Robot wins!"
-	print(result)
-	return result
+    def is_available(self) -> bool:
+        return True
+
+    def perform_gesture(self, move: str) -> bool:
+        move = move.strip().upper()
+
+        if move not in {"ROCK", "PAPER", "SCISSORS"}:
+            print(f"Unknown arm gesture: {move}")
+            return False
+
+        remote_command = (
+            f"bash --noprofile --norc -c "
+            f"'exec {self.executable} eth0 {move}'"
+        )
+
+        print(f"Sending {move} gesture to G1...")
+
+        try:
+            subprocess.run(
+                [
+                    "ssh",
+                    "-o", "BatchMode=yes",
+                    "-o", "ConnectTimeout=5",
+                    self.host,
+                    remote_command,
+                ],
+                check=True,
+            )
+            print(f"G1 completed {move}.")
+            return True
+
+        except (OSError, subprocess.SubprocessError) as error:
+            print(f"Warning: remote arm gesture failed: {error}")
+            return False
 
 
-def play_game(robot: RobotHand | None = None) -> None:
-	"""Play until the user enters ``q`` or ``quit``."""
-	robot = robot or SimulatedHand()
-	print("Rock Paper Scissors — enter rock, paper, scissors, or q to quit.")
-	while True:
-		choice = input("Your choice: ").strip().lower()
-		if choice in {"q", "quit"}:
-			print("Thanks for playing!")
-			break
-		if choice not in MOVEMENTS:
-			print("Please enter rock, paper, or scissors.")
-			continue
-		play_round(choice, robot)
+def reveal_gesture(robot_hand, robot_arms: ArmGestureController, move: str) -> bool:
+    """Perform the RPS gesture using the robot's arms."""
+    return robot_arms.perform_gesture(move)
 
-
-if __name__ == "__main__":
-	play_game()
 
