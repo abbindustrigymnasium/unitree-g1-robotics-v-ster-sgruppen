@@ -37,7 +37,7 @@ CAMERA_INDEX = 0
 
 NUMBER_OF_FRAMES = 10
 MINIMUM_VOTES = 6
-SAMPLE_INTERVAL = 0.12
+SAMPLE_INTERVAL = 0.06
 
 
 # ============================================================
