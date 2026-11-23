@@ -1,94 +1,164 @@
-"""Rock-paper-scissors movements and a small playable game.
-
-Hardware integration is deliberately kept behind ``RobotHand``: connect its
-``set_hand_pose`` method to the hand-control API used by your robot. Without a
-hardware adapter, the game runs in simulation and prints the requested pose.
-"""
-
-from __future__ import annotations
-
-import random
-import time
+import os
+import subprocess
+import select
+from pathlib import Path
 from typing import Protocol
+
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+UNITREE_G1_IP = os.getenv("UNITREE_G1_IP")
+assert UNITREE_G1_IP, "UNITREE_G1_IP must be set in .env"
 
 
 class RobotHand(Protocol):
-	"""Minimal interface expected from a robot-hand adapter."""
-
-	def set_hand_pose(self, pose: str) -> None:
-		"""Set the hand to ``rock``, ``paper``, or ``scissors``."""
+    def set_hand_pose(self, pose: str) -> None:
+        ...
 
 
 class SimulatedHand:
-	"""Safe fallback used when no hardware adapter is supplied."""
-
-	def set_hand_pose(self, pose: str) -> None:
-		print(f"[Robot hand] {pose}")
+    def set_hand_pose(self, pose: str) -> None:
+        print(f"[Robot hand] {pose}")
 
 
-def move_rock(robot: RobotHand) -> None:
-	"""Close the hand into a fist."""
-	robot.set_hand_pose("rock")
+class ArmGestureController:
+
+    def __init__(
+        self,
+        host=None,
+        executable="/home/unitree/unitree_sdk2-2.0.2/build/bin/g1_rps_gestures",
+    ):
+        self.host = host or f"unitree@{UNITREE_G1_IP}"
+        self.executable = executable
+        self.process = None
+
+    def is_available(self):
+        return True
+
+    def start_ready(self):
+
+        if self.process and self.process.poll() is None:
+            return True
+
+        remote_command = (
+            f"bash --noprofile --norc -c "
+            f"'test -x {self.executable} && echo READY'"
+        )
+
+        print("Preparing robot...")
+        print(f"Connecting via SSH to {self.host}...")
+
+        try:
+            ssh_command = [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=5",
+                "-o", "ConnectionAttempts=1",
+                self.host,
+                remote_command,
+            ]
+
+            result = subprocess.run(
+                ssh_command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=10,
+            )
+
+            output = result.stdout.strip()
+            if output:
+                print(output)
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"SSH readiness check failed (exit status {result.returncode})."
+                )
+
+            if output.splitlines()[-1].strip() != "READY":
+                raise RuntimeError(
+                    "Robot executable was not found or did not respond with READY."
+                )
+
+            print("Robot is ready.")
+            self.process = None
+            return True
+
+        except subprocess.TimeoutExpired:
+            print("Preparation failed: SSH readiness check timed out.")
+            return False
+        except Exception as error:
+            print(f"Preparation failed: {error}")
+            self.stop()
+            return False
+
+    def perform_gesture(self, move):
+
+        move = move.strip().upper()
+
+        if move not in {"ROCK", "PAPER", "SCISSORS"}:
+            return False
+
+        remote_command = (
+            f"{self.executable} eth0 {move}"
+        )
+
+        try:
+            print(f"Sending {move} to G1...")
+
+            result = subprocess.run(
+                [
+                    "ssh",
+                    "-o", "BatchMode=yes",
+                    "-o", "ConnectTimeout=5",
+                    "-o", "ConnectionAttempts=1",
+                    self.host,
+                    remote_command,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=20,
+                bufsize=1,
+            )
+
+            if result.stdout:
+                print(result.stdout, end="")
+
+            if result.returncode != 0:
+                print(
+                    f"Movement failed: remote gesture exited "
+                    f"with status {result.returncode}."
+                )
+                return False
+
+            return True
+
+        except subprocess.TimeoutExpired:
+            print("Movement failed: gesture timed out.")
+            return False
+        except Exception as error:
+            print(f"Movement failed: {error}")
+            self.stop()
+            return False
+
+    def stop(self):
+
+        if self.process:
+            try:
+                if self.process.poll() is None:
+                    self.process.stdin.close()
+                    self.process.wait(timeout=5)
+
+            except Exception:
+                self.process.kill()
+                self.process.wait()
+
+            self.process = None
 
 
-def move_paper(robot: RobotHand) -> None:
-	"""Open and spread the fingers."""
-	robot.set_hand_pose("paper")
-
-
-def move_scissors(robot: RobotHand) -> None:
-	"""Extend the index and middle fingers; curl the others."""
-	robot.set_hand_pose("scissors")
-
-
-MOVEMENTS = {
-	"rock": move_rock,
-	"paper": move_paper,
-	"scissors": move_scissors,
-}
-CHOICES = tuple(MOVEMENTS)
-
-
-def play_round(player_choice: str, robot: RobotHand) -> str:
-	"""Perform one robot gesture and return the round result."""
-	player_choice = player_choice.strip().lower()
-	if player_choice not in MOVEMENTS:
-		raise ValueError("Choice must be rock, paper, or scissors.")
-
-	robot_choice = random.choice(CHOICES)
-	MOVEMENTS[robot_choice](robot)
-	time.sleep(1)  # Give the hand time to finish its gesture.
-	print(f"You: {player_choice} | Robot: {robot_choice}")
-
-	if player_choice == robot_choice:
-		result = "It's a tie!"
-	elif (player_choice, robot_choice) in {
-		("rock", "scissors"),
-		("paper", "rock"),
-		("scissors", "paper"),
-	}:
-		result = "You win!"
-	else:
-		result = "Robot wins!"
-	print(result)
-	return result
-
-
-def play_game(robot: RobotHand | None = None) -> None:
-	"""Play until the user enters ``q`` or ``quit``."""
-	robot = robot or SimulatedHand()
-	print("Rock Paper Scissors — enter rock, paper, scissors, or q to quit.")
-	while True:
-		choice = input("Your choice: ").strip().lower()
-		if choice in {"q", "quit"}:
-			print("Thanks for playing!")
-			break
-		if choice not in MOVEMENTS:
-			print("Please enter rock, paper, or scissors.")
-			continue
-		play_round(choice, robot)
-
-
-if __name__ == "__main__":
-	play_game()
-
+def reveal_gesture(robot_hand, robot_arms, move):
+    return robot_arms.perform_gesture(move)
