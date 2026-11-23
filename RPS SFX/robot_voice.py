@@ -193,6 +193,11 @@ def speed_up(input_file, output_file, speed=1.12):
 VOICE = "sv-SE-MattiasNeural"
 
 PHRASES = {
+    # Talking
+    "hello": "Hej, välkommen. Vad roligt att du vill spela med mig.",
+    "goodbye": "Tack för en god match.",
+    "play_again": "Vill du spela igen?",
+
     # Robot wins
     "win_01": "Jag vann. Det var nästan oväntat.",
     "win_02": "Mina beräkningar verkar fungera utmärkt.",
@@ -206,6 +211,26 @@ PHRASES = {
     "lose_03": "Det här resultatet behöver jag analysera närmare.",
     "lose_04": "Tydligen är människan fortfarande konkurrenskraftig.",
     "lose_05": "Jag erkänner min förlust. Motvilligt.",
+
+    # RPS
+    "rock": "Sten.",
+    "scissors": "Sax.",
+    "paper": "Påse.",
+    "på": "På",
+    "sä": "Sä",
+
+    # RPS/TTT
+    "choose": "Jag väljer",
+
+    # TTT
+    "move": "Jag flyttar",
+    "to": "till",
+    "top": "längst upp",
+    "middle": "mitten",
+    "bottom": "längst ner",
+    "left": "till vänster",
+    "center": "i mitten",
+    "right": "till höger",
 }
 
 
