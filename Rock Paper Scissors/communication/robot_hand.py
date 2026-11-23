@@ -1,5 +1,14 @@
+import os
 import time
+from pathlib import Path
+
+from dotenv import load_dotenv
 from inspire_rh56dftp import InspireHand
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+UNITREE_G1_IP = os.getenv("UNITREE_G1_IP")
+assert UNITREE_G1_IP, "UNITREE_G1_IP must be set in .env"
 
 
 class RobotHand:
@@ -8,7 +17,7 @@ class RobotHand:
         self.hand = None
 
         try:
-            self.hand = InspireHand(ip="192.168.123.210")
+            self.hand = InspireHand(ip=UNITREE_G1_IP)
         except (OSError, RuntimeError, TimeoutError) as error:
             print(f"Warning: could not connect to Inspire hand: {error}")
 

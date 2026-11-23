@@ -20,8 +20,14 @@ import math
 import time
 import threading
 
+from dotenv import load_dotenv
 from pathlib import Path
 from collections import Counter
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+UNITREE_G1_IP = os.getenv("UNITREE_G1_IP")
+assert UNITREE_G1_IP, "UNITREE_G1_IP must be set in .env"
 
 
 # ============================================================
@@ -42,7 +48,7 @@ MODEL_URL = (
 # Unitree G1 camera
 CAMERA_SOURCE = os.getenv(
     "CAMERA_SOURCE",
-    "rtsp://192.168.123.164:8554/cam"
+    f"rtsp://{UNITREE_G1_IP}:8554/cam"
 )
 
 NUMBER_OF_FRAMES = 10

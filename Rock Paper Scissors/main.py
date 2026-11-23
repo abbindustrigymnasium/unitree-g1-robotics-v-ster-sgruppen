@@ -1,4 +1,5 @@
 import random
+import threading
 
 from game.game_logic import determine_winner
 from communication import robot_speech
@@ -10,20 +11,9 @@ from robot.robot_movement import (
 )
 
 
-# ============================================================
-# ROBOT MOVE
-# ============================================================
-
 def choose_robot_move():
+    return random.choice(["ROCK", "PAPER", "SCISSORS"])
 
-    moves = ["ROCK", "PAPER", "SCISSORS"]
-
-    return random.choice(moves)
-
-
-# ============================================================
-# PLAY ONE ROUND
-# ============================================================
 
 def play_round(camera, robot_arms):
 
@@ -31,32 +21,48 @@ def play_round(camera, robot_arms):
 
     robot_speech.start_round()
 
-    # Countdown
-    robot_speech.countdown()
+    while True:
 
-    # Camera takes pictures AFTER "Påse!"
-    player_move = camera.detect_player_move()
+        # Prepare robot before countdown.
+        if not robot_arms.start_ready():
+            print("Could not prepare robot.")
+            return False
 
-    while player_move == "UNKNOWN":
+        # Start robot movement in a separate thread.
+        movement_thread = None
 
-        robot_speech.ask_for_retry()
+        def start_robot_movement():
+            nonlocal movement_thread
 
-        robot_speech.countdown()
+            movement_thread = threading.Thread(
+                target=reveal_gesture,
+                args=(None, robot_arms, robot_move)
+            )
+
+            movement_thread.start()
+
+        # Robot starts moving exactly when "Påse!" is announced.
+        # Camera recognition starts immediately afterward.
+        robot_speech.countdown(
+            on_reveal=start_robot_movement
+        )
 
         player_move = camera.detect_player_move()
 
-    print(f"\nPlayer chose: {player_move}")
+        # Wait until robot finishes its gesture.
+        if movement_thread is not None:
+            movement_thread.join()
 
-    # Reveal robot's move using its arms
+        if player_move != "UNKNOWN":
+            break
+
+        robot_speech.ask_for_retry()
+
+    print(f"\nPlayer chose: {player_move}")
+    print(f"Robot chose: {robot_move}")
+
     robot_speech.announce_move(robot_move)
 
-    reveal_gesture(
-        None,
-        robot_arms,
-        robot_move
-    )
-
-    # Determine winner
     result = determine_winner(
         robot_move,
         player_move
@@ -67,21 +73,16 @@ def play_round(camera, robot_arms):
     return True
 
 
-# ============================================================
-# MAIN GAME
-# ============================================================
-
 def main():
 
     camera = CameraRecognizer()
-
     robot_arms = ArmGestureController()
 
     try:
 
         while True:
 
-            if play_round(camera, robot_arms) is False:
+            if not play_round(camera, robot_arms):
                 break
 
             again = input(
@@ -92,17 +93,12 @@ def main():
                 break
 
     except KeyboardInterrupt:
-
         print("\nStopping game...")
 
     finally:
-
+        robot_arms.stop()
         camera.close()
 
-
-# ============================================================
-# START
-# ============================================================
 
 if __name__ == "__main__":
     main()

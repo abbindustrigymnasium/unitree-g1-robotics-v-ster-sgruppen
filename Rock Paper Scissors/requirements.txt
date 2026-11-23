@@ -17,6 +17,7 @@ pillow==13.0.0
 pycparser==3.12
 pyparsing==3.3.3
 python-dateutil==4.0.0
+python-dotenv==1.2.1
 sounddevice==0.5.6
 tzdata==2026.6
 unitree_sdk2py==1.0.1

@@ -1,92 +1,164 @@
 import os
 import subprocess
+import select
+from pathlib import Path
 from typing import Protocol
+
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+UNITREE_G1_IP = os.getenv("UNITREE_G1_IP")
+assert UNITREE_G1_IP, "UNITREE_G1_IP must be set in .env"
 
 
 class RobotHand(Protocol):
-    """Kept for compatibility with the existing project."""
-
     def set_hand_pose(self, pose: str) -> None:
         ...
 
 
 class SimulatedHand:
-    """Fallback hand implementation."""
-
     def set_hand_pose(self, pose: str) -> None:
         print(f"[Robot hand] {pose}")
 
 
-def move_rock(robot):
-    robot.perform_gesture("ROCK")
-
-
-def move_paper(robot):
-    robot.perform_gesture("PAPER")
-
-
-def move_scissors(robot):
-    robot.perform_gesture("SCISSORS")
-
-
-MOVEMENTS = {
-    "rock": move_rock,
-    "paper": move_paper,
-    "scissors": move_scissors,
-}
-
-CHOICES = tuple(MOVEMENTS)
-
-
 class ArmGestureController:
-    """Execute RPS arm gestures on the G1 through SSH."""
 
     def __init__(
         self,
-        host: str = "unitree@192.168.123.164",
-        executable: str = "/home/unitree/unitree_sdk2-2.0.2/build/bin/g1_rps_gestures",
-    ) -> None:
-        self.host = host
+        host=None,
+        executable="/home/unitree/unitree_sdk2-2.0.2/build/bin/g1_rps_gestures",
+    ):
+        self.host = host or f"unitree@{UNITREE_G1_IP}"
         self.executable = executable
+        self.process = None
 
-    def is_available(self) -> bool:
+    def is_available(self):
         return True
 
-    def perform_gesture(self, move: str) -> bool:
-        move = move.strip().upper()
+    def start_ready(self):
 
-        if move not in {"ROCK", "PAPER", "SCISSORS"}:
-            print(f"Unknown arm gesture: {move}")
-            return False
+        if self.process and self.process.poll() is None:
+            return True
 
         remote_command = (
             f"bash --noprofile --norc -c "
-            f"'exec {self.executable} eth0 {move}'"
+            f"'test -x {self.executable} && echo READY'"
         )
 
-        print(f"Sending {move} gesture to G1...")
+        print("Preparing robot...")
+        print(f"Connecting via SSH to {self.host}...")
 
         try:
-            subprocess.run(
+            ssh_command = [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=5",
+                "-o", "ConnectionAttempts=1",
+                self.host,
+                remote_command,
+            ]
+
+            result = subprocess.run(
+                ssh_command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=10,
+            )
+
+            output = result.stdout.strip()
+            if output:
+                print(output)
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"SSH readiness check failed (exit status {result.returncode})."
+                )
+
+            if output.splitlines()[-1].strip() != "READY":
+                raise RuntimeError(
+                    "Robot executable was not found or did not respond with READY."
+                )
+
+            print("Robot is ready.")
+            self.process = None
+            return True
+
+        except subprocess.TimeoutExpired:
+            print("Preparation failed: SSH readiness check timed out.")
+            return False
+        except Exception as error:
+            print(f"Preparation failed: {error}")
+            self.stop()
+            return False
+
+    def perform_gesture(self, move):
+
+        move = move.strip().upper()
+
+        if move not in {"ROCK", "PAPER", "SCISSORS"}:
+            return False
+
+        remote_command = (
+            f"{self.executable} eth0 {move}"
+        )
+
+        try:
+            print(f"Sending {move} to G1...")
+
+            result = subprocess.run(
                 [
                     "ssh",
                     "-o", "BatchMode=yes",
                     "-o", "ConnectTimeout=5",
+                    "-o", "ConnectionAttempts=1",
                     self.host,
                     remote_command,
                 ],
-                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=20,
+                bufsize=1,
             )
-            print(f"G1 completed {move}.")
+
+            if result.stdout:
+                print(result.stdout, end="")
+
+            if result.returncode != 0:
+                print(
+                    f"Movement failed: remote gesture exited "
+                    f"with status {result.returncode}."
+                )
+                return False
+
             return True
 
-        except (OSError, subprocess.SubprocessError) as error:
-            print(f"Warning: remote arm gesture failed: {error}")
+        except subprocess.TimeoutExpired:
+            print("Movement failed: gesture timed out.")
+            return False
+        except Exception as error:
+            print(f"Movement failed: {error}")
+            self.stop()
             return False
 
+    def stop(self):
 
-def reveal_gesture(robot_hand, robot_arms: ArmGestureController, move: str) -> bool:
-    """Perform the RPS gesture using the robot's arms."""
+        if self.process:
+            try:
+                if self.process.poll() is None:
+                    self.process.stdin.close()
+                    self.process.wait(timeout=5)
+
+            except Exception:
+                self.process.kill()
+                self.process.wait()
+
+            self.process = None
+
+
+def reveal_gesture(robot_hand, robot_arms, move):
     return robot_arms.perform_gesture(move)
-
-
