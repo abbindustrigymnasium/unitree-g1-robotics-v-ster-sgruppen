@@ -10,6 +10,23 @@ from robot.robot_movement import (
     reveal_gesture
 )
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+ROBOT_OUTPUT = "enp129s0"
+
+sys.path.insert(
+    0,
+    str(PROJECT_ROOT / "RPS SFX")
+)
+
+from g1_audio import G1AudioPlayer
+
+
+
+
 
 def choose_robot_move():
     return random.choice(["ROCK", "PAPER", "SCISSORS"])
@@ -78,13 +95,23 @@ def main():
     camera = CameraRecognizer()
     robot_arms = ArmGestureController()
 
+    g1_player = G1AudioPlayer(ROBOT_OUTPUT)
+
+    robot_speech.configure_audio(
+        g1_player.play
+    )
+
     try:
+
+        robot_speech.introduce()
 
         while True:
 
             if not play_round(camera, robot_arms):
                 break
 
+            robot_speech.play_again()
+            
             again = input(
                 "\nPlay another round? (y/n): "
             ).strip().lower()
@@ -98,6 +125,7 @@ def main():
     finally:
         robot_arms.stop()
         camera.close()
+        robot_speech.goodbye()
 
 
 if __name__ == "__main__":

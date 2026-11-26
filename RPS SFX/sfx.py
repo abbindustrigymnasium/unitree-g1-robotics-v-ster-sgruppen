@@ -1,5 +1,4 @@
 import random
-import winsound
 from pathlib import Path
 
 
@@ -46,6 +45,8 @@ def get_sound(result):
 
 
 def play_result(result):
+    import winsound
+
     """Play a randomly selected sound on Windows."""
 
     sound = get_sound(result)
