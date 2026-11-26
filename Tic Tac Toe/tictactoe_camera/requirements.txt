@@ -1,1 +1,3 @@
-opencv-contrib-python>=4.8.0\nnumpy>=1.24.0\npython-dotenv>=1.0.0\n
+opencv-contrib-python>=4.8.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
