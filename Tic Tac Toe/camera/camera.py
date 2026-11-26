@@ -32,20 +32,29 @@ BOARD_SIZE = 600
 
 class TicTacToeCamera:
     def __init__(self, camera_source=DEFAULT_CAMERA_SOURCE, show_window=True):
+        # Convert numeric camera sources from strings to integers
         if isinstance(camera_source, str) and camera_source.isdigit():
             camera_source = int(camera_source)
 
-        backend = (
-            cv2.CAP_FFMPEG if isinstance(camera_source, str)
-            else cv2.CAP_V4L2
-        )
+        # Select the correct camera backend depending on the source
+        if isinstance(camera_source, int):
+            # Laptop webcam on Windows
+            self.cap = cv2.VideoCapture(camera_source, cv2.CAP_DSHOW)
+        else:
+            # RTSP stream from the Unitree robot
+            self.cap = cv2.VideoCapture(camera_source, cv2.CAP_FFMPEG)
 
-        self.cap = cv2.VideoCapture(camera_source, backend)
-
+        # Check if the camera opened successfully
         if not self.cap.isOpened():
             raise RuntimeError(f"Could not open camera: {camera_source}")
 
+        # Reduce camera buffering
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        # Set webcam resolution (only relevant for webcams)
+        if isinstance(camera_source, int):
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
         self.detector = BoardDetector()
         self.perspective = BoardPerspective(BOARD_SIZE)
@@ -53,6 +62,7 @@ class TicTacToeCamera:
 
         self.show_window = show_window
         self.latest_frame = None
+        self.last_board_state = None
         self.capture_lock = threading.Lock()
         self.capture_stop = threading.Event()
 
@@ -130,7 +140,9 @@ class TicTacToeCamera:
                         warped_display, result["board_state"]
                     )
 
-                    print("\rBoard:", result["board_state"], end="")
+                    if result["board_state"] != self.last_board_state:
+                        print("Board:", result["board_state"])
+                        self.last_board_state = result["board_state"]
 
                     if self.show_window:
                         cv2.imshow("G1 Camera - Board", display)
