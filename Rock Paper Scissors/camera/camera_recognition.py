@@ -1,12 +1,16 @@
+# ============================================================
+# ROCK PAPER SCISSORS - CAMERA RECOGNITION
+# Unitree G1 Camera Integration
+#
 # How it works:
-# Opens the camera
-# Detects the player's hand
-# ecognizes rock, paper or scissors
-# Takes 10 samples
-# Uses majority voting to determine the result
-# Returns the result to the main game
-# Returns "UNKNOWN" if it can't confidently recognize the gesture
-
+# 1. Opens the G1 camera
+# 2. Detects the player's hand
+# 3. Recognizes rock, paper or scissors
+# 4. Takes 10 samples
+# 5. Uses majority voting to determine the result
+# 6. Returns the result to the main game
+# 7. Returns "UNKNOWN" if it can't confidently recognize
+# ============================================================
 
 import cv2
 import mediapipe as mp
@@ -14,8 +18,16 @@ import os
 import urllib.request
 import math
 import time
+import threading
+
+from dotenv import load_dotenv
 from pathlib import Path
 from collections import Counter
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+UNITREE_G1_IP = os.getenv("UNITREE_G1_IP")
+assert UNITREE_G1_IP, "UNITREE_G1_IP must be set in .env"
 
 
 # ============================================================
@@ -33,11 +45,15 @@ MODEL_URL = (
     "hand_landmarker.task"
 )
 
-CAMERA_INDEX = 0
+# Unitree G1 camera
+CAMERA_SOURCE = os.getenv(
+    "CAMERA_SOURCE",
+    f"rtsp://{UNITREE_G1_IP}:8554/cam"
+)
 
 NUMBER_OF_FRAMES = 10
 MINIMUM_VOTES = 6
-SAMPLE_INTERVAL = 0.12
+SAMPLE_INTERVAL = 0.06
 
 
 # ============================================================
@@ -163,7 +179,6 @@ def recognize_gesture(landmarks):
     ])
 
     # SCISSORS
-    # Index and middle extended, pinky not extended.
     if index and middle and not pinky:
         return "SCISSORS"
 
@@ -235,13 +250,15 @@ def draw_hand(frame, landmarks):
 
 class CameraRecognizer:
 
-    def __init__(self, camera_index=CAMERA_INDEX):
+    def __init__(self, camera_source=CAMERA_SOURCE):
 
         download_model()
 
         # Initialize MediaPipe
         BaseOptions = mp.tasks.BaseOptions
+
         HandLandmarker = mp.tasks.vision.HandLandmarker
+
         HandLandmarkerOptions = (
             mp.tasks.vision.HandLandmarkerOptions
         )
@@ -263,26 +280,81 @@ class CameraRecognizer:
             HandLandmarker.create_from_options(options)
         )
 
-        # Open camera
+        # Convert numeric camera strings to integers
+        if isinstance(camera_source, str) and camera_source.isdigit():
+            camera_source = int(camera_source)
+
+        # ----------------------------------------------------
+        # OPEN CAMERA
+        # ----------------------------------------------------
+
         if os.name == "nt":
+
+            # Windows
             self.cap = cv2.VideoCapture(
-                camera_index,
+                camera_source,
                 cv2.CAP_DSHOW
             )
+
         else:
-            self.cap = cv2.VideoCapture(camera_index)
+
+            # Linux / Unitree G1
+            backend = (
+                cv2.CAP_FFMPEG
+                if isinstance(camera_source, str)
+                else cv2.CAP_V4L2
+            )
+            self.cap = cv2.VideoCapture(
+                camera_source,
+                backend
+            )
 
         if not self.cap.isOpened():
 
             self.landmarker.close()
 
             raise RuntimeError(
-                "Could not open camera!"
+                f"Could not open camera: {camera_source}"
             )
+
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.latest_frame = None
+        self.capture_lock = threading.Lock()
+        self.capture_stop = threading.Event()
+        self.capture_thread = threading.Thread(
+            target=self._capture_latest_frame,
+            daemon=True
+        )
+        self.capture_thread.start()
 
         self.last_timestamp_ms = -1
 
         print("Camera recognizer initialized!")
+        print(f"Using camera: {camera_source}")
+
+    def _capture_latest_frame(self):
+
+        while not self.capture_stop.is_set():
+
+            success, frame = self.cap.read()
+
+            if not success or frame is None:
+                continue
+
+            with self.capture_lock:
+                self.latest_frame = frame
+
+    def read_latest_frame(self):
+
+        while not self.capture_stop.is_set():
+
+            with self.capture_lock:
+                if self.latest_frame is not None:
+                    return True, self.latest_frame.copy()
+
+            time.sleep(0.001)
+
+        return False, None
 
 
     # ========================================================
@@ -335,6 +407,55 @@ class CameraRecognizer:
     # DETECT PLAYER MOVE
     # ========================================================
 
+    def wait_for_ready(self):
+
+        print("Press ENTER in the camera window when ready...")
+
+        while True:
+
+            success, frame = self.read_latest_frame()
+
+            if not success or frame is None:
+                print("Could not read camera frame.")
+                return False
+
+            frame = cv2.flip(frame, 1)
+
+            gesture, display_frame = self.process_frame(frame)
+
+            cv2.putText(
+                display_frame,
+                f"Prediction: {gesture}",
+                (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                2
+            )
+
+            cv2.putText(
+                display_frame,
+                "Press ENTER to start, Q to cancel",
+                (10, 75),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 0),
+                2
+            )
+
+            cv2.imshow(
+                "Rock Paper Scissors Camera",
+                display_frame
+            )
+
+            key = cv2.waitKey(1) & 0xFF
+
+            if key in (10, 13):
+                return True
+
+            if key == ord("q"):
+                return False
+
     def detect_player_move(self):
 
         print("\nWaiting for player's gesture...")
@@ -347,7 +468,7 @@ class CameraRecognizer:
 
         while samples_taken < NUMBER_OF_FRAMES:
 
-            success, frame = self.cap.read()
+            success, frame = self.read_latest_frame()
 
             if not success or frame is None:
 
@@ -355,6 +476,7 @@ class CameraRecognizer:
 
                 break
 
+            # Mirror camera image
             frame = cv2.flip(frame, 1)
 
             current_time = time.monotonic()
@@ -455,7 +577,9 @@ class CameraRecognizer:
 
     def close(self):
 
+        self.capture_stop.set()
         self.cap.release()
+        self.capture_thread.join(timeout=1)
 
         cv2.destroyAllWindows()
 
